@@ -46,6 +46,15 @@ class Node(tf.Module):
     def from_specs(cls, specs):
         return cls()
 
+    def drop_connections(self):
+        if self.support_inputs:
+            self.inputs = []
+        if self.support_outputs:
+            self.outputs = []
+
+    def clone(self):
+        return self.from_specs(self.specs)
+
 
 class MainInput(Node):
 
@@ -96,7 +105,8 @@ class Input(Node):
         self.inputs = ()
 
     def to_graph(self, graph):
-        return graph.get_tensor_by_name(f"Inp:{self.inp_idx}")
+        with graph.as_default():
+            return tf.identity(graph.get_tensor_by_name(f"Inp:{self.inp_idx}"), name=self.name)
 
     @property
     def num_inputs(self):
@@ -147,11 +157,11 @@ class Linear(Node):
     support_inputs = True
     support_outputs = True
 
-    def __init__(self, activation=''):
+    def __init__(self, activation='relu'):
         super(Linear, self).__init__()
         assert activation in activations, f"There is no activation named {activation}"
         self.activation = activations[activation]
-        self.__activation_name = activation
+        self.activation_name = activation
 
     def to_graph(self, graph, inputs, weights='shared', bias=0):
         self.name_scope.__init__(name=self.name)
@@ -169,12 +179,13 @@ class Linear(Node):
                 w = tf.Variable(weights, trainable=True, name='w', dtype=tf.float32)
 
             b = tf.Variable(bias, trainable=True, name='b', dtype=tf.float32)
-            return self.activation(tf.tensordot(inputs, w, axes=1) + b)
+            out = self.activation(tf.tensordot(inputs, w, axes=1) + b)
+        return out
 
     @property
     def specs(self):
         specs = super(Linear, self).specs
-        specs['activation'] = self.__activation_name
+        specs['activation'] = self.activation_name
         return specs
 
     @classmethod
@@ -192,3 +203,10 @@ def create_from_specs(specs):
         return Linear.from_specs(specs)
     else:
         raise AttributeError(f"Unknown node type: {node_type}")
+
+
+# ==============================================================================================
+# Global stuff
+
+# Nodes that can be hidden, for now it is only linear
+HIDDEN = [Linear]

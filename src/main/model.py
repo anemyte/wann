@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 import json
 import tensorflow as tf
 from multiprocessing import Pool, cpu_count
+from src.main.utils import IOTable
 
 
 class Model:
@@ -34,6 +35,7 @@ class Model:
                 self.add_node(nodes.Output(i))
 
         self.best_score = None
+        self.alterations = []
 
     # ================================================================
     # PUBLIC GET METHODS
@@ -67,6 +69,10 @@ class Model:
         return list(self.__nodes_by_type[2])  # there will be more types
 
     @property
+    def hidden_nodes_ids(self):
+        return [node.id for node in self.hidden_nodes]
+
+    @property
     def non_input_nodes(self):
         return self.output_nodes + self.hidden_nodes
 
@@ -93,6 +99,15 @@ class Model:
             else:
                 out_conn[k] = []
         return out_conn
+
+    def get_adjacency_matrix(self):
+        matrix = IOTable()
+        matrix.add_nodes(self.__nodes.values())
+        for node in self.__nodes.values():
+            if node.inputs:
+                for inp in node.inputs:
+                    matrix.at[node.id, inp.id] += 1
+        return matrix
 
     def get_node_by_id(self, id_):
         return self.__nodes[id_]
@@ -158,6 +173,7 @@ class Model:
     def add_node(self, node):
         id_ = self.get_id_for_new_node()
         self._add_node_with_id(node, id_)
+        return id_
 
     def remove_node(self, node):
         if isinstance(node, int):
@@ -222,43 +238,9 @@ class Model:
                     node.inputs.append(self.__nodes[inp])
                     self.__nodes[inp].outputs.append(node)
 
-    """
-    def connect_nodes(self, previous, next):
-        self.add_new_input_to_node(next, previous)
-
-    def disconnect_nodes(self, node_1, node_2):
-        if node_1 in self._node_inputs[node_2]:
-            self._node_inputs[node_2].remove(node_1)
-        if node_1 in self._node_outputs[node_2]:
-            self._node_outputs[node_2].remove(node_1)
-        if node_2 in self._node_inputs[node_1]:
-            self._node_inputs[node_1].remove(node_2)
-        if node_2 in self._node_outputs[node_1]:
-            self._node_outputs[node_1].remove(node_2)
-
-    def add_new_input_to_node(self, node_id, new_input):
-        if new_input in self._node_inputs[node_id]:  # if new_input already associated with the node_id
-            if node_id in self._node_outputs[new_input]:  # and node_id associated with the new_input
-                return  # no action required
-            else:
-                # try to modify outputs
-                try:
-                    self._node_outputs[new_input].append(node_id)
-                except AttributeError:
-                    # this node does not output anything
-                    # remove associated input
-                    self._node_inputs[node_id].remove(new_input)
-                    raise AttributeError(f"Cannot connect nodes {node_id} and {new_input} this way."
-                                         f"At least one node cannot be used either as input or as output.")
-        else:
-            try:
-                self._node_inputs[node_id].append(new_input)
-                self._node_outputs[new_input].append(node_id)
-            except AttributeError:
-                self._node_inputs[node_id].remove(new_input)
-                raise AttributeError(f"Cannot connect nodes {node_id} and {new_input} this way."
-                                     f"At least one node cannot be used either as input or as output.")
-    """
+    def drop_all_connections(self):
+        for node in self.__nodes.values():
+            node.drop_connections()
 
     # ================================================================
     # PUBLIC EXPORT METHODS

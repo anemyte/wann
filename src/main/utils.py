@@ -5,7 +5,6 @@ class IOTable(DataFrame):
 
     def __init__(self, *args, **kwargs):
         super(IOTable, self).__init__(*args, **kwargs)
-        self.__nodes = []
 
     @property
     def inputs(self):
@@ -15,42 +14,44 @@ class IOTable(DataFrame):
     def outputs(self):
         return self.index.values
 
-    def add_node(self, node):
-        if node.id in self.__nodes:
-            return
-        if node.support_inputs:
-            self.loc[node.id] = 0
-        if node.support_outputs:
-            self[node.id] = 0
-        if node.support_inputs and node.support_outputs:
-            self.at[node.id, node.id] = None
-        self.__nodes.append(node.id)
+    @property
+    def nodes(self):
+        return set(self.inputs).union(self.outputs)
 
-    def add_nodes(self, node_list):
+    def add_node(self, node, as_input=True, as_output=True):
+        if node.id in self.nodes:
+            return
+        if node.support_outputs and as_input:
+            self[node.id] = 0
+        if node.support_inputs and as_output:
+            self.loc[node.id] = 0
+        if node.support_inputs and node.support_outputs and as_input and as_output:
+            self.at[node.id, node.id] = None
+
+    def add_nodes(self, node_list, as_input=True, as_output=True):
         for node in node_list:
-            self.add_node(node)
+            self.add_node(node, as_input, as_output)
 
     def remove_node(self, node):
-        if node.id not in self.__nodes:
-            return
         if node.id in self.index:
             self.drop(index=node.id, inplace=True)
         if node.id in self.columns:
             self.drop(columns=node.id, inplace=True)
-        self.__nodes.remove(node.id)
 
     def remove_nodes(self, node_list):
         for node in node_list:
             self.remove_node(node)
 
-    def argmin_inputs(self, out_id):
-        return self.columns[self.loc[out_id] == self.loc[out_id].min()].values
+    def absmin(self):
+        return self.min().min()
 
-    def argmax_inputs(self, out_id):
-        return self.columns[self.loc[out_id] == self.loc[out_id].max()].values
+    def copy(self, deep=True):
+        dt = super(IOTable, self).copy(deep=deep)
+        new_instance = IOTable(dt)
+        return new_instance
 
-    def argmin_outputs(self, inp_id):
-        return self.index[self[inp_id] == self[inp_id].min()].values
+    def get_connections(self):
+        return self[self > 0].stack().index.tolist()
 
-    def argmax_outputs(self, inp_id):
-        return self.index[self[inp_id] == self[inp_id].max()].values
+    def get_possible_connections(self):
+        return self[self == 0].stack().index.tolist()
