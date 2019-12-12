@@ -159,14 +159,6 @@ class Model:
         else:
             return []
 
-    def get_maxlen(self, collection='inputs'):
-        if collection.upper() == 'INPUTS':
-            return len(max(self.__input_connections.values(), key=len))
-        elif collection.upper() == 'OUTPUTS':
-            return len(max(self.__output_connections.values(), key=len))
-        else:
-            raise NotImplemented(f"Unsupported collection: {collection}.")
-
     # ================================================================
     # PUBLIC MODIFICATION METHODS
 
@@ -294,7 +286,7 @@ class Model:
         graph = tf.Graph()
         tensors = defaultdict(list)
         self.main_input.to_graph(graph)
-        self.shared_weight.to_graph(graph, self.get_maxlen('inputs'))
+        self.shared_weight.to_graph(graph, self.get_adjacency_matrix().sum(axis=1).max())
 
         # create nodes
         for node in self.__nodes.values():
@@ -323,3 +315,14 @@ class Model:
         elif node.type_id == 0:  # Input node type
             node_out_tensors = node.to_graph(graph)
         tensors[node.id] = node_out_tensors
+
+    # ================================================================
+    # DEPRECATED
+
+    def get_maxlen(self, collection='inputs'):
+        if collection.upper() == 'INPUTS':
+            return len(max(self.__input_connections.values(), key=len))
+        elif collection.upper() == 'OUTPUTS':
+            return len(max(self.__output_connections.values(), key=len))
+        else:
+            raise NotImplemented(f"Unsupported collection: {collection}.")

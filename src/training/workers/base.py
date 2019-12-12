@@ -1,7 +1,7 @@
-from threading import Thread
+from multiprocessing import Process
 
 
-class Worker(Thread):
+class Worker(Process):
 
     def __init__(self, out_queue, exit_signal, data):
         super(Worker, self).__init__(target=self.job)

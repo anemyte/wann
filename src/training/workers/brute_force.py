@@ -7,6 +7,8 @@ from src.training.utils import test_graph_gym, init_graph, test_graph_gym_m, get
 from scipy.special import softmax
 from collections import defaultdict
 import numpy as np
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class BruteForceWorker(Worker):
@@ -41,6 +43,9 @@ class BruteForceWorker(Worker):
         return tbl
 
     def pre_job(self):
+        import tensorflow
+        tensorflow.compat.v1.disable_eager_execution()
+        tensorflow.get_logger().setLevel('INFO')
         # ===================================================================
         # Change_conn method block
         # Create special tables for 'change_conn' method
@@ -233,7 +238,7 @@ class BruteForceWorker(Worker):
         self.production_counter += 1
         # Initialise new alteration and add some information for performance analysis
         new_alt = AlterationV2(self.model)
-        new_alt.wid = self.getName().split('-')[1]
+        new_alt.wid = self.name
         new_alt.wname = self.name
         new_alt.pid = self.production_counter
         return new_alt
@@ -328,9 +333,16 @@ class BruteForceWorker(Worker):
 if __name__ == '__main__':
     from src.training.gym_agent import GymAgent
     import multiprocessing
+    import queue, time
     a = GymAgent('CartPole-v0')
     a.gr()
     data = a.create_worker_data()
     ss = multiprocessing.Value('i', 0)
     e = BruteForceWorker(a.worker_out_queue, ss, data)
     e.start()
+    alt = None
+    while not alt:
+        try:
+            alt = a.worker_out_queue.get_nowait()
+        except queue.Empty:
+            time.sleep(1)

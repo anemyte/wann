@@ -89,7 +89,7 @@ class SharedWeight(Node):
         with graph.as_default():
             placeholder = tf.keras.backend.placeholder(shape=(), dtype=tf.float32, name='sw')
             weights = []
-            for i in range(max_len+1):
+            for i in range(int(max_len)+1):
                 weights.append(tf.fill((i,), placeholder))
             return tf.identity_n(weights, "shared_weight")
 

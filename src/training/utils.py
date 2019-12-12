@@ -88,6 +88,30 @@ def test_graph_gym_m(weights, graph, init, out, env_id, seeds):
     return output
 
 
+def pbexec(**kwargs):
+    import multiprocessing
+    import queue, time
+    q = multiprocessing.Queue()
+    args = tuple([q])
+    p = multiprocessing.Process(target=tggmq, args=args, kwargs=kwargs)
+    p.start()
+    out = None
+    while not out:
+        try:
+            out = q.get_nowait()
+        except queue.Empty:
+            time.sleep(1)
+    p.terminate()
+    return out
+
+
+def tggmq(q, **kwargs):
+    import tensorflow as tf
+    tf.compat.v1.disable_eager_execution()
+    out = test_graph_gym_m(**kwargs)
+    q.put(out)
+
+
 def export_tensorboard(graph, export_path=''):
     # export logs to analyse graph in tensorboard
     with tf.compat.v1.Session(graph=graph):

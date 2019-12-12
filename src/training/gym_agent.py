@@ -58,7 +58,8 @@ class GymAgent:
         graph = self.model.make_graph()
         init, out = init_graph(graph=graph, out_func=self.__out_func)
         seeds = get_seeds(env_id=self.env_id, amount=5)
-        scores = test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
+        from src.training.utils import pbexec
+        scores = pbexec(weights=self.weights, graph=graph, init=init, out=out,
                                   env_id=self.env_id, seeds=seeds)
         # now find out average
         self.best_score = eval_meanstd_product(list(scores.values()))
@@ -145,7 +146,8 @@ class GymAgent:
         for w in self.__workers:
             if w.is_alive():
                 if not silent:
-                    print(f"{w.name} is still working. Waiting...")
+                    print(f"{w.name} is still working. Terminating...")
+                w.terminate()
                 w.join()
             else:
                 if not silent:
@@ -207,6 +209,6 @@ class GymAgent:
 
 
 if __name__ == "__main__":
-    a = GymAgent("CartPole-v0", num_workers=1)
+    a = GymAgent("CartPole-v0", num_workers=8)
 
 
