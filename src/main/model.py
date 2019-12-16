@@ -101,6 +101,7 @@ class Model:
         return out_conn
 
     def get_adjacency_matrix(self):
+        # TODO find a way to store this value
         matrix = IOTable()
         matrix.add_nodes(self.__nodes.values())
 
@@ -148,10 +149,14 @@ class Model:
             lst.remove(node)
         # remove all nodes that depend on this one
         dq = deque()
+        visited = set()
         dq.extend(node.outputs)
         while dq:
             out_node = dq.popleft()
-            dq.extend(out_node.outputs)
+            if not visited.issuperset(out_node.outputs):
+                unvisited = visited.symmetric_difference(out_node.outputs)
+                dq.extend(unvisited)
+                visited.update(unvisited)
             if out_node in lst:
                 lst.remove(out_node)
         # remove currently used inputs as well

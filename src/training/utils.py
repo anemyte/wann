@@ -1,8 +1,10 @@
 import gym
+import time
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+from functools import wraps
 
 
 def test_graph_gym(weight, graph, init, out, env_id, seed=None, render=False,
@@ -168,3 +170,15 @@ def eval_meanstd_product(array):
 
 def eval_mean(array):
     return np.mean(array)
+
+
+
+def timeit(method):
+    @wraps(method)
+    def timed(*args, **kw):
+        tstart = time.time()
+        result = method(*args, **kw)
+        tend = time.time()
+        print('%r  %2.2f ms' % (method.__name__, (tend - tstart) * 1000))
+        return result
+    return timed
