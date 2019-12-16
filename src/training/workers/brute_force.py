@@ -93,9 +93,6 @@ class BruteForceWorker(Worker):
     # ==================================================================
     # Randomization functions
 
-    from src.training.utils import timeit
-
-    @timeit
     def select_output(self, table, for_input=None, greedy=False, increment=False):
         # table is IOTable or its id
         if not isinstance(table, IOTable):
