@@ -48,7 +48,6 @@ class BFWorker(unittest.TestCase):
         # add some nodes
         num_new_nodes = 30
         for _ in range(num_new_nodes):
-            print(_)
             w.mm_add_node().apply()
             w.io_tables['add_node_0'].add_node(w.model.nodes[-1])
         # test create graph, if nodes were added incorrectly, this may produce an infinite recursion

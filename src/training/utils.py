@@ -1,10 +1,51 @@
 import gym
 import time
+import multiprocessing
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
+
+
+class WrapperProcess(multiprocessing.Process):
+
+    def __init__(self, target, args, kwargs):
+        super(WrapperProcess, self).__init__(target=self.run_target, args=args, kwargs=kwargs)
+        self.out_q = multiprocessing.Queue()
+        self.target_method = target
+
+    def run_target(self, *args, **kwargs):
+        result = self.target_method(*args, **kwargs)
+        self.out_q.put(result)
+
+
+def run_in_separate_process(method, timeout=5):
+    # Run decorated method in a separate process
+    # This is necessary for some functions that rely on TensorFlow, importing TF into main thread will cause
+    # subprocess with TF to stop working.
+    @wraps(method)
+    def run(*args, **kwargs):
+        p = WrapperProcess(target=method, args=args, kwargs=kwargs)
+        p.start()
+        try:
+            result = p.out_q.get(timeout=timeout)
+        except multiprocessing.TimeoutError as e:
+            p.terminate()
+            raise e
+        return result
+    return run
+
+
+def timeit(method):
+    @wraps(method)
+    def timed(*args, **kw):
+        tstart = time.time()
+        result = method(*args, **kw)
+        tend = time.time()
+        print('%r  %2.2f ms' % (method.__name__, (tend - tstart) * 1000))
+        return result
+    return timed
 
 
 def test_graph_gym(weight, graph, init, out, env_id, seed=None, render=False,
@@ -170,15 +211,3 @@ def eval_meanstd_product(array):
 
 def eval_mean(array):
     return np.mean(array)
-
-
-
-def timeit(method):
-    @wraps(method)
-    def timed(*args, **kw):
-        tstart = time.time()
-        result = method(*args, **kw)
-        tend = time.time()
-        print('%r  %2.2f ms' % (method.__name__, (tend - tstart) * 1000))
-        return result
-    return timed
