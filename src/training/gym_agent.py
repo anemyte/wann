@@ -86,6 +86,7 @@ class GymAgent:
         while not self.__training_stop_signal:
             # launch workers
             self.launch_workers(self.__worker_data)
+
             # and wait for something to come out
             new_alteration = None
             while new_alteration is None:
@@ -102,6 +103,7 @@ class GymAgent:
                     break
             if emergency_exit:
                 break
+
             # print changes
             self.print_alt(new_alteration)
             # now shutdown workers
@@ -141,8 +143,10 @@ class GymAgent:
     def stop_workers(self, silent=True):
         if not silent:
             print(f"Stopping {self.num_workers} workers...")
+
         self.__worker_stop_signal.value = 1  # this'll make workers to stop gracefully
         sleep(self.__worker_timeout)
+
         for w in self.__workers:
             if w.is_alive():
                 if not silent:

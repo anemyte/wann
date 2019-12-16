@@ -103,10 +103,18 @@ class Model:
     def get_adjacency_matrix(self):
         matrix = IOTable()
         matrix.add_nodes(self.__nodes.values())
+
         for node in self.__nodes.values():
             if node.inputs:
+                # add existing connections
                 for inp in node.inputs:
                     matrix.at[node.id, inp.id] += 1
+            if node.inputs and node.outputs:
+                # mark impossible connections to avoid recursion
+                possible_inputs = self.get_possible_input_ids(node, exclude_existing=False)
+                # disable everything that's not in possible inputs
+                matrix.loc[node.id, set(matrix.inputs).difference(possible_inputs)] = None
+
         return matrix
 
     def get_node_by_id(self, id_):

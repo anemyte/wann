@@ -1,4 +1,5 @@
 from pandas import DataFrame
+import numpy as np
 
 
 class IOTable(DataFrame):
