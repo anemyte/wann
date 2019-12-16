@@ -16,8 +16,12 @@ class WrapperProcess(multiprocessing.Process):
         self.target_method = target
 
     def run_target(self, *args, **kwargs):
-        result = self.target_method(*args, **kwargs)
-        self.out_q.put(result)
+        try:
+            result = self.target_method(*args, **kwargs)
+        except Exception as e:
+            result = e
+        finally:
+            self.out_q.put(result)
 
 
 def run_in_separate_process(method, timeout=5):
@@ -33,7 +37,11 @@ def run_in_separate_process(method, timeout=5):
         except multiprocessing.TimeoutError as e:
             p.terminate()
             raise e
-        return result
+
+        if isinstance(result, Exception):
+            raise result
+        else:
+            return result
     return run
 
 
