@@ -13,6 +13,6 @@ a.start_training()
 ```
 And you'll see some logs about learning progress. When you wish to stop the process, run 'stop_training' method:
 ```
-a.stop.training()
+a.stop_training()
 ```
 And if you like to see how the agent plays, run 'a.play()'. This was tested in CarPole and LunarLander environments.
