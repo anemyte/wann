@@ -157,13 +157,14 @@ class Linear(Node):
     support_inputs = True
     support_outputs = True
 
-    def __init__(self, activation='relu'):
+    def __init__(self, activation='relu', bias=0):
         super(Linear, self).__init__()
         assert activation in activations, f"There is no activation named {activation}"
         self.activation = activations[activation]
         self.activation_name = activation
+        self.bias = bias
 
-    def to_graph(self, graph, inputs, weights='shared', bias=0):
+    def to_graph(self, graph, inputs, weights='shared'):
         self.name_scope.__init__(name=self.name)
         with graph.as_default(), self.name_scope:
             # set weights
@@ -178,7 +179,7 @@ class Linear(Node):
                 # use passed weights
                 w = tf.Variable(weights, trainable=True, name='w', dtype=tf.float32)
 
-            b = tf.Variable(bias, trainable=True, name='b', dtype=tf.float32)
+            b = tf.Variable(self.bias, trainable=True, name='b', dtype=tf.float32)
             out = self.activation(tf.tensordot(inputs, w, axes=1) + b)
         return out
 
@@ -186,11 +187,14 @@ class Linear(Node):
     def specs(self):
         specs = super(Linear, self).specs
         specs['activation'] = self.activation_name
+        specs['bias'] = self.bias
         return specs
 
     @classmethod
     def from_specs(cls, specs):
-        return cls(specs['activation'])
+        act = specs['activation']
+        bias = specs['bias']
+        return cls(activation=act, bias=bias)
 
 
 def create_from_specs(specs):
