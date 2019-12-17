@@ -207,10 +207,3 @@ def create_from_specs(specs):
         return Linear.from_specs(specs)
     else:
         raise AttributeError(f"Unknown node type: {node_type}")
-
-
-# ==============================================================================================
-# Global stuff
-
-# Nodes that can be hidden, for now it is only linear
-HIDDEN = [Linear]

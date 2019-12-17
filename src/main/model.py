@@ -1,9 +1,11 @@
-from src.main import nodes
-from collections import defaultdict, deque
 import json
 import tensorflow as tf
+import random
+from src.main import nodes
+from collections import defaultdict, deque
 from multiprocessing import Pool, cpu_count
 from src.main.utils import IOTable
+
 
 
 class Model:
@@ -210,6 +212,18 @@ class Model:
         next_node = self.__nodes[next_node_id]
         next_node.inputs.remove(previous_node)
         previous_node.outputs.remove(next_node)
+
+    def set_up_random_io_connections(self):
+        """
+        Set up a random connection for each output node with no connections.
+
+        In some environments doing nothing is better than doing something at the beginning of learning.
+        This method partially solve this issue, but to make sure you need to add some noise to the input.
+        """
+        input_nodes = self.input_nodes
+        for out_node in self.output_nodes:
+            if not out_node.inputs:
+                self.connect_by_id(random.choice(input_nodes).id, out_node.id)
 
     # ================================================================
     # PRIVATE MODIFICATION METHODS

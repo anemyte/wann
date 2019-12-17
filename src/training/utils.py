@@ -3,6 +3,7 @@ import time
 import multiprocessing
 import tensorflow as tf
 import numpy as np
+import os
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
@@ -29,7 +30,7 @@ def run_in_separate_process(method, timeout=5):
     # This is necessary for some functions that rely on TensorFlow, importing TF into main thread will cause
     # subprocess with TF to stop working.
     @wraps(method)
-    def run(*args, **kwargs):
+    def wrapper(*args, **kwargs):
         p = WrapperProcess(target=method, args=args, kwargs=kwargs)
         p.start()
         try:
@@ -37,23 +38,25 @@ def run_in_separate_process(method, timeout=5):
         except multiprocessing.TimeoutError as e:
             p.terminate()
             raise e
+        else:
+            p.join(timeout=timeout)
 
         if isinstance(result, Exception):
             raise result
         else:
             return result
-    return run
+    return wrapper
 
 
 def timeit(method):
     @wraps(method)
-    def timed(*args, **kw):
-        tstart = time.time()
-        result = method(*args, **kw)
-        tend = time.time()
-        print('%r  %2.2f ms' % (method.__name__, (tend - tstart) * 1000))
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = method(*args, **kwargs)
+        end = time.time()
+        print(f'{method.__name__}  %2.2f ms' % ((end - start) * 1000))
         return result
-    return timed
+    return wrapper
 
 
 def test_graph_gym(weight, graph, init, out, env_id, seed=None, render=False,
@@ -139,30 +142,6 @@ def test_graph_gym_m(weights, graph, init, out, env_id, seeds):
     return output
 
 
-def pbexec(**kwargs):
-    import multiprocessing
-    import queue, time
-    q = multiprocessing.Queue()
-    args = tuple([q])
-    p = multiprocessing.Process(target=tggmq, args=args, kwargs=kwargs)
-    p.start()
-    out = None
-    while not out:
-        try:
-            out = q.get_nowait()
-        except queue.Empty:
-            time.sleep(1)
-    p.terminate()
-    return out
-
-
-def tggmq(q, **kwargs):
-    import tensorflow as tf
-    tf.compat.v1.disable_eager_execution()
-    out = test_graph_gym_m(**kwargs)
-    q.put(out)
-
-
 def export_tensorboard(graph, export_path=''):
     # export logs to analyse graph in tensorboard
     with tf.compat.v1.Session(graph=graph):
@@ -174,6 +153,7 @@ def export_tensorboard(graph, export_path=''):
 
 
 def init_graph(graph, out_func=''):
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     with graph.as_default():
         if out_func == 'argmax':
             out = tf.argmax(graph.get_tensor_by_name("MainOutput:0"))
@@ -219,3 +199,10 @@ def eval_meanstd_product(array):
 
 def eval_mean(array):
     return np.mean(array)
+
+
+def suppress_warnings():
+    import os
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    import warnings
+    warnings.simplefilter('ignore')

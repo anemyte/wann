@@ -3,20 +3,19 @@ from src.main.alterations import AlterationV2
 from src.main.activations import activation_df
 from src.main.utils import IOTable
 from src.main import nodes
-from src.training.utils import test_graph_gym, init_graph, test_graph_gym_m, get_seeds, eval_meanstd_product
+from src.training import utils
 from scipy.special import softmax
 from collections import defaultdict
 import numpy as np
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 class BruteForceWorker(Worker):
 
-    def __init__(self, out_queue, exit_signal, data):
+    def __init__(self, out_queue, exit_signal, data, error_queue=None):
         super(BruteForceWorker, self).__init__(out_queue=out_queue,
                                                exit_signal=exit_signal,
-                                               data=data)
+                                               data=data,
+                                               error_queue=error_queue)
 
         self.weights = self.data['weights']
         self.production_counter = 0
@@ -38,24 +37,37 @@ class BruteForceWorker(Worker):
         self.__activation_uses = activation_df()
 
     def job(self):
-        # something to do before the main loop begins
-        self.pre_job()
-        # main loop
-        while not self.stop.value:
-            mf = self.select_mm()
-            alt = mf['callable']()
-            success, scores = self.test_alt(alt)
-            mf['num_tests'] += 1
-            mf['score'] += scores['avg']
-            if success:
-                # stop all workers
-                self.stop.value = 1
-                alt.score_data = scores
-                self.oq.put(alt)
-            else:
-                continue
-        # exit sequence
-        self.post_job()
+        try:
+            # something to do before the main loop begins
+            self.pre_job()
+            # main loop
+            while not self.stop.value:
+                mf = self.select_mm()
+                alt = mf['callable']()
+                success, scores = self.test_alt(alt)
+                mf['num_tests'] += 1
+                mf['score'] += scores['avg']
+                if success:
+                    alt.score_data = scores
+                    self.oq.put(alt)
+                    break
+                else:
+                    continue
+            # exit sequence
+            self.post_job()
+        except Exception as e:
+            debug_data = {
+                'exception': e,
+                'wid': self.name,
+                'pid': self.production_counter,
+                'activations': self.__activation_uses,
+            }
+            for mm in self.mms:
+                mm.pop('callable')
+                debug_data[mm['name']] = mm
+            for name, value in self.io_tables.items():
+                debug_data[f"iot_{name}"] = value
+            self.error_queue.put(debug_data)
 
     def pre_job(self):
         # ===================================================================
@@ -66,9 +78,8 @@ class BruteForceWorker(Worker):
         # TensorFlow does its own parallelization.
         # Do not remove the line below unless you absolutely sure.
         # ===================================================================
+        utils.suppress_warnings()
         import tensorflow
-        tensorflow.compat.v1.disable_eager_execution()
-        tensorflow.get_logger().setLevel('INFO')
         # ===================================================================
         # Change_conn method block
         # Create special tables for 'change_conn' method
@@ -88,6 +99,7 @@ class BruteForceWorker(Worker):
     def post_job(self, *args, **kwargs):
         # something to do before shutting down
         # use in child classes
+
         pass
 
     # ==================================================================
@@ -261,11 +273,13 @@ class BruteForceWorker(Worker):
         activation = self.select_activation(f"{in_node_id}-{out_node_id}", increment=True)
         # create node object
         new_node = nodes.Linear(activation=activation)
+        # add random bias # TODO make it less random
+        bias = np.random.uniform(-1, 1)
+        new_node.bias = bias
         # add it to the alteration and connect
         new_node_id = alt.add_node_as_new(new_node)
         alt.add_connection(in_node_id, new_node_id)
         alt.add_connection(new_node_id, out_node_id)
-        # TODO possibly break existing connection
         return alt
 
     # def mm_change_node(self):
@@ -289,21 +303,24 @@ class BruteForceWorker(Worker):
     def test_alt(self, alt):
         # run a set of increasingly difficult tests
         graph = alt.make_graph()
-        init, out = init_graph(graph, self.data['out_func'])
+        init, out = utils.init_graph(graph, self.data['out_func'])
+
         # test 1
         # score_l1 = self.test_graph_l1(graph=graph, init=init, out=out)
         # if score_l1 < self.data['target_score']:
         #    return False, {'avg': score_l1}
+
         # test 2
         scores_l2 = self.test_graph_l2(graph=graph, init=init, out=out)
         # calculate average
-        avg_l2 = eval_meanstd_product(scores_l2[self.data['env_seed']])
+        avg_l2 = utils.eval_meanstd_product(scores_l2[self.data['env_seed']])
         if avg_l2 <= self.data['target_score']:
             return False, {'avg': avg_l2}
+
         # test 3 (final)
         scores_l3 = self.test_graph_l3(graph=graph, init=init, out=out)
         # calculate average
-        avg_l3 = eval_meanstd_product(list(scores_l3.values()))
+        avg_l3 = utils.eval_meanstd_product(list(scores_l3.values()))
         # compare against model's best score
         if avg_l3 <= self.data['best_score']:
             return False, {'avg': avg_l3}
@@ -317,24 +334,24 @@ class BruteForceWorker(Worker):
         # very simple one-run test
         # low quality, high probability of 'lucky' pass
         random_weight = np.random.choice(self.weights)
-        score = test_graph_gym(weight=random_weight, graph=graph, init=init, out=out,
-                               env_id=self.data['env_id'], seed=self.data['env_seed'])
+        score = utils.test_graph_gym(weight=random_weight, graph=graph, init=init, out=out,
+                                     env_id=self.data['env_id'], seed=self.data['env_seed'])
         return score
 
     def test_graph_l2(self, graph, init, out):
         # more advanced than l1, run several times, once with each weight
         # less than l1 but still significant chance to pass by luck
-        scores = test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
-                                  env_id=self.data['env_id'], seeds=[self.data['env_seed']])
+        scores = utils.test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
+                                        env_id=self.data['env_id'], seeds=[self.data['env_seed']])
         return scores
 
     def test_graph_l3(self, graph, init, out):
         # advanced and most time-consuming test
         # the graph is tested with random seeds and per each seed the test is performed with each of weights
 
-        seeds = get_seeds(env_id=self.data['env_id'], amount=5)
-        scores = test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
-                                  env_id=self.data['env_id'], seeds=seeds)
+        seeds = utils.get_seeds(env_id=self.data['env_id'], amount=self.data['seed_pool_l3'])
+        scores = utils.test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
+                                        env_id=self.data['env_id'], seeds=seeds)
         return scores
 
     # ==================================================================

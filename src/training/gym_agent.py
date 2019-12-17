@@ -4,7 +4,7 @@ import queue
 import multiprocessing
 from threading import Thread
 from src.main.model import Model
-from src.training.utils import test_graph_gym_m, init_graph, get_seeds, eval_meanstd_product
+from src.training import utils
 from src.training.workers.brute_force import BruteForceWorker as BFW
 from time import sleep
 
@@ -16,14 +16,15 @@ class GymAgent:
                  ):
         self.env_id = env_id
         self.weights = weights
+        self.seed_pool_l3 = 10
 
         self.num_workers = num_workers
         self.__workers = []
         self.__worker_data = None
-        self.__worker_timeout = 3  # seconds
+        self.__worker_terminate_timeout = 3  # seconds
         self.__worker_stop_signal = multiprocessing.Value('i', 0)
         self.worker_out_queue = multiprocessing.Queue()
-
+        self.worker_error_queue = multiprocessing.Queue()
         self.__training_stop_signal = True
         self.__training_thread = None
 
@@ -41,6 +42,7 @@ class GymAgent:
         # init model
         if model is None:
             self.model = Model(self.num_inputs, self.num_outputs)
+            self.model.set_up_random_io_connections()
         else:
             self.model = model
 
@@ -53,32 +55,36 @@ class GymAgent:
         self.__training_thread = Thread(target=self.__train)
         self.__training_thread.start()
 
-    def __get_ready(self):
-        # eval model in current useless state
-        graph = self.model.make_graph()
-        init, out = init_graph(graph=graph, out_func=self.__out_func)
-        seeds = get_seeds(env_id=self.env_id, amount=5)
-        from src.training.utils import pbexec
-        scores = pbexec(weights=self.weights, graph=graph, init=init, out=out,
-                                  env_id=self.env_id, seeds=seeds)
+    def recalculate_model_score(self):
+        # eval model in current state
+        @utils.run_in_separate_process
+        def get_score(self):
+            graph = self.model.make_graph()
+            init, out = utils.init_graph(graph=graph, out_func=self.__out_func)
+            seeds = utils.get_seeds(env_id=self.env_id, amount=self.seed_pool_l3)
+
+            scores = utils.test_graph_gym_m(weights=self.weights, graph=graph, init=init, out=out,
+                                            env_id=self.env_id, seeds=seeds)
+
+            return scores
+
+        scores = get_score(self)
         # now find out average
-        self.best_score = eval_meanstd_product(list(scores.values()))
+        self.best_score = utils.eval_meanstd_product(list(scores.values()))
         # and worst case seed
         self.get_worst_seed(score_dict=scores, update_local=True)
-        # create data to pass to workers
-        self.create_worker_data(update_local=True)
-
-    def gr(self):
-        self.__get_ready()
 
     def __train(self):
 
         assert self.__training_stop_signal, "Attempt to launch training while it is already in progress."
 
         if self.best_score is None:
-            self.__get_ready()
+            self.recalculate_model_score()
 
-        self.recreate_queue()  # just in case previous exit was by emergency
+        # create data to pass to workers
+        self.create_worker_data(update_local=True)
+
+        self.recreate_queues()  # just in case previous exit was by emergency
         # begin training
         emergency_exit = False
         self.__training_stop_signal = False
@@ -86,7 +92,6 @@ class GymAgent:
         while not self.__training_stop_signal:
             # launch workers
             self.launch_workers(self.__worker_data)
-
             # and wait for something to come out
             new_alteration = None
             while new_alteration is None:
@@ -119,7 +124,7 @@ class GymAgent:
             # join thread
             st.join()
             # empty queue
-            self.recreate_queue()
+            self.recreate_queues()
 
     def stop_training(self):
         # stop training loop
@@ -137,7 +142,8 @@ class GymAgent:
         for n in range(self.num_workers):
             self.__workers.append(BFW(out_queue=self.worker_out_queue,
                                       exit_signal=self.__worker_stop_signal,
-                                      data=data))
+                                      data=data,
+                                      error_queue=self.worker_error_queue))
             self.__workers[-1].start()
 
     def stop_workers(self, silent=True):
@@ -145,7 +151,7 @@ class GymAgent:
             print(f"Stopping {self.num_workers} workers...")
 
         self.__worker_stop_signal.value = 1  # this'll make workers to stop gracefully
-        sleep(self.__worker_timeout)
+        sleep(self.__worker_terminate_timeout)
 
         for w in self.__workers:
             if w.is_alive():
@@ -167,6 +173,7 @@ class GymAgent:
         data['env_seed'] = self.worst_seed_id
         data['target_score'] = self.worst_seed_score
         data['best_score'] = self.best_score
+        data['seed_pool_l3'] = self.seed_pool_l3
 
         if update_local:
             self.__worker_data = data
@@ -181,7 +188,7 @@ class GymAgent:
                 # there could be some additional data, like l2_avg, l3_avg, etc. stored with key as string
                 # seed data stored as int: [values]
                 continue
-            avg = eval_meanstd_product(value)
+            avg = utils.eval_meanstd_product(value)
             if min_score is None or avg < min_score:
                 min_score = avg
                 seed = key
@@ -194,8 +201,9 @@ class GymAgent:
 
         return seed, min_score
 
-    def recreate_queue(self):
+    def recreate_queues(self):
         self.worker_out_queue = multiprocessing.Queue()
+        self.worker_error_queue = multiprocessing.Queue()
 
     def print_alt(self, alt):
         line_len = 20
@@ -204,15 +212,23 @@ class GymAgent:
         print("="*line_len)
         print(f"New alteration applied | AVG: {avg_score} | WSS: {worst_seed_score}")
         print("-"*line_len)
-        print(f"Worker: {alt.wname}")
+        print(f"Worker: {alt.wid}")
         print(f"PID: {alt.pid}")
         print("Changes:")
         for line in alt.changelog:
             print(line)
         print("-"*line_len)
 
+    @utils.run_in_separate_process
+    def play(self):
+        import tensorflow
+        graph = self.model.make_graph()
+        init, out = utils.init_graph(graph=graph, out_func=self.__out_func)
+        score = utils.test_graph_gym(weight=1.,graph=graph, init=init, out=out, env_id=self.env_id, render=True)
+        print(score)
+
 
 if __name__ == "__main__":
-    a = GymAgent("CartPole-v0", num_workers=8)
+    a = GymAgent("LunarLanderContinuous-v2", num_workers=8)
 
 
