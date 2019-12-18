@@ -160,11 +160,24 @@ class Linear(Node):
     def __init__(self, activation='relu', bias=0):
         super(Linear, self).__init__()
         assert activation in activations, f"There is no activation named {activation}"
-        self.activation = activations[activation]
         self.activation_name = activation
         self.bias = bias
 
-    def to_graph(self, graph, inputs, weights='shared'):
+    @property
+    def activation(self):
+        return activations[self.activation_name]
+
+    def change_activation(self, new_actv_name):
+        if new_actv_name in activations:
+            self.activation_name = new_actv_name
+        else:
+            raise KeyError(f'There is no activation function named {new_actv_name}')
+
+    def to_graph(self, graph, inputs, weights='shared', noise=None):
+        # Note to myself
+        # DO NOT replace matmul with reduce. Remember that in the end weights as a vector will allow
+        # to adjust separate weight for each input, thus giving better precision.
+
         self.name_scope.__init__(name=self.name)
         with graph.as_default(), self.name_scope:
             # set weights
@@ -180,7 +193,13 @@ class Linear(Node):
                 w = tf.Variable(weights, trainable=True, name='w', dtype=tf.float32)
 
             b = tf.Variable(self.bias, trainable=True, name='b', dtype=tf.float32)
-            out = self.activation(tf.tensordot(inputs, w, axes=1) + b)
+
+            # Apply noise
+            if noise is None:
+                out = self.activation(tf.tensordot(inputs, w, axes=1) + b)
+            else:
+                n = tf.random_uniform(shape=(), minval=noise[0], maxval=noise[1], dtype=tf.float16)
+                out = self.activation(tf.tensordot(inputs, w, axes=1) + b + n)
         return out
 
     @property
