@@ -50,7 +50,7 @@ class GymAgent:
         # init model
         if model is None:
             self.model = Model(self.num_inputs, self.num_outputs)
-            # self.model.set_up_random_io_connections()
+            self.model.set_up_random_io_connections()
         else:
             self.model = model
 
@@ -250,6 +250,6 @@ class GymAgent:
 
 
 if __name__ == "__main__":
-    a = GymAgent("CartPole-v0", num_workers=8, alt_pool_size=10)
+    a = GymAgent("CartPole-v0", num_workers=8)
 
 
