@@ -1,4 +1,3 @@
-# gym agent class
 import gym
 import queue
 import multiprocessing
@@ -9,14 +8,23 @@ from src.training.workers.brute_force import BruteForceWorker as BFW
 from time import sleep
 
 
+# V02
+# Now gathers up some amount of alterations before applying one to the model.
+
+
 class GymAgent:
 
-    def __init__(self, env_id, model=None, weights=(-1.5, -0.5, 0.5, 1.5),
-                 num_workers=multiprocessing.cpu_count(),
+    def __init__(self,
+                 env_id,  # gym environment id
+                 model=None,  # nn Model object
+                 weights=(-1.5, -0.5, 0.5, 1.5),  # a set of weights to pass to linear nodes
+                 num_workers=multiprocessing.cpu_count(),  # a number of workers to launch
+                 alt_pool_size=3,  # number of alterations to wait before applying one
                  ):
         self.env_id = env_id
         self.weights = weights
         self.seed_pool_l3 = 10
+        self.alt_pool_size = alt_pool_size
 
         self.num_workers = num_workers
         self.__workers = []
@@ -92,9 +100,12 @@ class GymAgent:
         while not self.__training_stop_signal:
             # launch workers
             self.launch_workers(self.__worker_data)
-            # and wait for something to come out
-            new_alteration = None
-            while new_alteration is None:
+            # and wait for things to come out
+
+            new_alterations = []
+            new_best_avg_score = None
+            best_alt_idx = None
+            while new_alterations.__len__() < self.alt_pool_size:
                 # check if stop signal was received
                 if self.__training_stop_signal:
                     emergency_exit = True
@@ -105,20 +116,30 @@ class GymAgent:
                     sleep(1)
                     continue
                 else:
-                    break
+                    # take out score data
+                    _avgscore = new_alteration.score_data['avg']
+
+                    # find out if it is better than whatever was obtained earlier
+                    if new_best_avg_score is None or _avgscore > new_best_avg_score:
+                        new_best_avg_score = _avgscore
+                        best_alt_idx = new_alterations.__len__()
+
+                    new_alterations.append(new_alteration)
+
             if emergency_exit:
                 break
 
-            # print changes
-            self.print_alt(new_alteration)
-            # now shutdown workers
+            # shutdown workers
             st = Thread(target=self.stop_workers)
             st.start()
-            # apply changes
-            new_alteration.apply(target_model=self.model)
+
+            # print changes
+            self.print_alt(new_alterations[best_alt_idx])
+            # apply best one
+            new_alterations[best_alt_idx].apply(target_model=self.model)
             # update scores
-            self.get_worst_seed(score_dict=new_alteration.score_data, update_local=True)
-            self.best_score = new_alteration.score_data['avg']
+            self.get_worst_seed(score_dict=new_alterations[best_alt_idx].score_data, update_local=True)
+            self.best_score = new_best_avg_score
             # update worker data
             self.create_worker_data(update_local=True)
             # join thread
@@ -229,6 +250,6 @@ class GymAgent:
 
 
 if __name__ == "__main__":
-    a = GymAgent("LunarLanderContinuous-v2", num_workers=8)
+    a = GymAgent("CartPole-v0", num_workers=8)
 
 

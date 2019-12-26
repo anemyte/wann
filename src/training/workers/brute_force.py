@@ -50,7 +50,6 @@ class BruteForceWorker(Worker):
                 if success:
                     alt.score_data = scores
                     self.oq.put(alt)
-                    break
                 else:
                     continue
             # exit sequence
