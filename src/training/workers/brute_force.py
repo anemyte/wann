@@ -273,8 +273,8 @@ class BruteForceWorker(Worker):
         # create node object
         new_node = nodes.Linear(activation=activation)
         # add random bias # TODO make it less random
-        bias = np.random.uniform(-1, 1)
-        new_node.bias = bias
+        # bias = np.random.uniform(-1, 1)
+        # new_node.bias = bias
         # add it to the alteration and connect
         new_node_id = alt.add_node_as_new(new_node)
         alt.add_connection(in_node_id, new_node_id)
@@ -301,7 +301,7 @@ class BruteForceWorker(Worker):
 
     def test_alt(self, alt):
         # run a set of increasingly difficult tests
-        graph = alt.make_graph()
+        graph = alt.make_graph(noise=self.data['noise'], nodes_to_noise=alt.io.nodes)
         init, out = utils.init_graph(graph, self.data['out_func'])
 
         # test 1
@@ -368,27 +368,3 @@ class BruteForceWorker(Worker):
         new_alt.wid = self.name
         new_alt.pid = self.production_counter
         return new_alt
-
-
-if __name__ == '__main__':
-    from src.training.gym_agent import GymAgent
-    import multiprocessing
-    import queue, time
-    a = GymAgent('CartPole-v0')
-    a.gr()
-    data = a.create_worker_data()
-    ss = multiprocessing.Value('i', 0)
-    global e
-    e = BruteForceWorker(a.worker_out_queue, ss, data)
-    #e.start()
-    #alt = None
-    #while not alt:
-    #    try:
-    #        alt = a.worker_out_queue.get_nowait()
-    #    except queue.Empty:
-    #        time.sleep(1)
-    def test():
-        alt = e.mm_add_node()
-        alt.apply()
-        e.io_tables['add_node_0'] = e.model.get_adjacency_matrix()
-        return alt

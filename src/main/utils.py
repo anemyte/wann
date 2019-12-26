@@ -56,3 +56,7 @@ class IOTable(DataFrame):
 
     def get_possible_connections(self):
         return self[self == 0].stack().index.tolist()
+
+    def get_input_connections_for(self, node_id):
+        slc = self.loc[node_id]
+        return slc[slc > 0].index.tolist()

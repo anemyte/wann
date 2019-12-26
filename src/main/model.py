@@ -174,6 +174,39 @@ class Model:
         else:
             return []
 
+    def get_node_ranks(self, nodes):
+        """
+        Calculate node rank for each node. Node rank is an integer value of how many steps were taken before
+        the node.
+        """
+        ranks = dict()
+
+        for node in nodes:
+            ranks[node.id] = self._get_node_rank(node, container=ranks)
+        return ranks
+
+    def _get_node_rank(self, node, container):
+        if node.id in container:
+            return container[node.id]
+
+        if not node.inputs:
+            return 1
+
+        input_ranks = []
+        for inode in node.inputs:
+            if not inode.support_inputs:  # e.g. if this is a node of class Input
+                input_ranks.append(1)
+                continue
+            if inode.id in container:
+                input_ranks.append(container[inode.id])
+            else:
+                input_ranks.append(self._get_node_rank(node=inode, container=container))
+        try:
+            rank = max(input_ranks) + 1
+        except ValueError:
+            rank = 1
+        return rank
+
     # ================================================================
     # PUBLIC MODIFICATION METHODS
 

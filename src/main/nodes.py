@@ -55,6 +55,13 @@ class Node(tf.Module):
     def clone(self):
         return self.from_specs(self.specs)
 
+    def add_noise(self, node_out, noise):
+        if isinstance(noise, tuple):
+            n = tf.random.uniform(shape=(), minval=noise[0], maxval=noise[1], dtype=tf.float32)
+        else:
+            n = tf.random.uniform(shape=(), minval=-1., maxval=1., dtype=tf.float32)
+        return node_out + n
+
 
 class MainInput(Node):
 
@@ -104,9 +111,13 @@ class Input(Node):
         self.inp_idx = inp_idx
         self.inputs = ()
 
-    def to_graph(self, graph):
+    def to_graph(self, graph, noise=None):
         with graph.as_default():
-            return tf.identity(graph.get_tensor_by_name(f"Inp:{self.inp_idx}"), name=self.name)
+            out = graph.get_tensor_by_name(f"Inp:{self.inp_idx}")
+            if noise is not None:
+                out = self.add_noise(out, noise)
+
+            return tf.identity(out, name=self.name)
 
     @property
     def num_inputs(self):
@@ -133,12 +144,18 @@ class Output(Node):
         self.outputs = ()
         self.out_idx = out_idx
 
-    def to_graph(self, graph, inputs):
+    def to_graph(self, graph, inputs, noise=None):
         with graph.as_default():
             if inputs:
-                return tf.identity(tf.add_n(inputs), name=f"Out_{self.out_idx}")
+                out = tf.identity(tf.add_n(inputs), name=f"Out_{self.out_idx}")
             else:
-                return tf.constant(float('-inf'), shape=(), name=f"Out_{self.out_idx}")
+                out = tf.constant(0., shape=(), name=f"Out_{self.out_idx}")
+
+            if noise is not None:
+                out = self.add_noise(out, noise)
+
+            return out
+
 
     @property
     def specs(self):
@@ -175,7 +192,7 @@ class Linear(Node):
 
     def to_graph(self, graph, inputs, weights='shared', noise=None):
         # Note to myself
-        # DO NOT replace matmul with reduce. Remember that in the end weights as a vector will allow
+        # DO NOT replace matmul with reduce. Remember that in the end weights as a vector allow
         # to adjust separate weight for each input, thus giving better precision.
 
         self.name_scope.__init__(name=self.name)
@@ -186,7 +203,7 @@ class Linear(Node):
                 w = graph.get_tensor_by_name(f"shared_weight:{len(inputs)}")
             elif weights is None or weights == 'none':
                 # init random weights
-                w = tf.Variable(tf.random.uniform((self.num_inputs,), -1., 1.),
+                w = tf.Variable(tf.random.uniform((len(inputs),), -1., 1.),
                                 trainable=True, name='w', dtype=tf.float32)
             else:
                 # use passed weights
@@ -194,12 +211,14 @@ class Linear(Node):
 
             b = tf.Variable(self.bias, trainable=True, name='b', dtype=tf.float32)
 
-            # Apply noise
-            if noise is None:
-                out = self.activation(tf.tensordot(inputs, w, axes=1) + b)
-            else:
-                n = tf.random_uniform(shape=(), minval=noise[0], maxval=noise[1], dtype=tf.float16)
-                out = self.activation(tf.tensordot(inputs, w, axes=1) + b + n)
+            out = tf.tensordot(inputs, w, axes=1) + b
+
+            if noise is not None:
+                # Apply noise
+                out = self.add_noise(out, noise)
+
+            out = self.activation(out)
+
         return out
 
     @property
@@ -211,9 +230,9 @@ class Linear(Node):
 
     @classmethod
     def from_specs(cls, specs):
-        act = specs['activation']
+        actv = specs['activation']
         bias = specs['bias']
-        return cls(activation=act, bias=bias)
+        return cls(activation=actv, bias=bias)
 
 
 def create_from_specs(specs):

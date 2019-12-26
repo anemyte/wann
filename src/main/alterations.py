@@ -97,7 +97,7 @@ class AlterationV2:
         self.score_data = None
         self.changelog = []
 
-    def make_graph(self):
+    def make_graph(self, noise=None, nodes_to_noise=None):
         # purpose
         # - create tensorflow Graph object
         # - use data in stored actions to build graph that differs from the model
@@ -113,20 +113,29 @@ class AlterationV2:
         # - while creating nodes the method saves their outputs as tensors
         # - while adding nodes the method first looks into nodes in this object's storage (in case of modified nodes)
         # the produced graph is saved as self.graph and returned back
+        if noise is not None:
+            noise = np.array(noise)
+        ranks = None
+        if nodes_to_noise:
+            ranks = self.get_node_ranks(nodes_to_noise)
 
         graph = tf.Graph()
         tensors = dict()
         self.model.main_input.to_graph(graph)
         self.model.shared_weight.to_graph(graph, len(self.io.columns))
         for node_id in self.io.outputs:
-            self.__add_to_graph(node_id, tensors, graph)
+            self.__add_to_graph(node_id, tensors, graph, noise=noise, ranks=ranks)
 
         self.model.main_output.to_graph(graph)
         return graph
 
-    def __add_to_graph(self, id, tensors, graph):
+    def __add_to_graph(self, id, tensors, graph, noise=None, ranks=None):
         if id in tensors:  # that is if the node has been added already
             return
+
+        noise_ = None
+        if ranks is not None and noise is not None:
+            noise_ = noise / ranks[id]
 
         if id in self.new_nodes:
             node = self.new_nodes[id]
@@ -137,21 +146,51 @@ class AlterationV2:
 
         # if node does not support input there is nothing more to do
         if not node.support_inputs:
-            tensor = node.to_graph(graph)
+            tensor = node.to_graph(graph=graph, noise=noise_)
             tensors[id] = tensor
             return tensor
 
         node_inputs = []
-        input_ids = self.io.loc[id] == 1
-        for idx, val in zip(input_ids.index, input_ids.values):
-            if val:  # that evaluates to true if this node receives input from another
-                if idx not in tensors:  # if the other node wasn't added to the graph
-                    node_inputs.append(self.__add_to_graph(idx, tensors, graph))
-                else:
-                    node_inputs.append(tensors[idx])
-        tensor = node.to_graph(graph, node_inputs)
+        input_ids = self.io.get_input_connections_for(id)
+        for inp in input_ids:
+            if inp not in tensors:  # if the other node wasn't added to the graph
+                t = self.__add_to_graph(inp, tensors, graph, noise, ranks)
+                tensors[inp] = t
+                node_inputs.append(t)
+            else:
+                node_inputs.append(tensors[inp])
+        tensor = node.to_graph(graph=graph, inputs=node_inputs, noise=noise_)
         tensors[id] = tensor
         return tensor
+
+    def get_node_ranks(self, node_ids):
+        """
+        Calculate node rank for each node. Node rank is an integer value of how many steps were taken before
+        the node.
+        """
+        ranks = dict()
+        for node_id in node_ids:
+            ranks[node_id] = self._get_node_rank(node_id=node_id, container=ranks)
+        return ranks
+
+    def _get_node_rank(self, node_id, container):
+        if node_id not in self.io.outputs:
+            return 1
+        if node_id in container:
+            return container[node_id]
+
+        input_ranks = []
+        inputs = self.io.get_input_connections_for(node_id)
+        for inp in inputs:
+            if inp in container:
+                input_ranks.append(container[inp])
+            else:
+                input_ranks.append(self._get_node_rank(node_id=inp, container=container))
+        try:
+            rank = max(input_ranks) + 1
+        except ValueError:
+            rank = 1
+        return rank
 
     def apply(self, target_model=None):
         # purpose

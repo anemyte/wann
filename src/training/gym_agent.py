@@ -20,9 +20,11 @@ class GymAgent:
                  weights=(-1.5, -0.5, 0.5, 1.5),  # a set of weights to pass to linear nodes
                  num_workers=multiprocessing.cpu_count(),  # a number of workers to launch
                  alt_pool_size=3,  # number of alterations to wait before applying one
+                 noise=(-1.0, 1.0)
                  ):
         self.env_id = env_id
         self.weights = weights
+        self.noise = noise
         self.seed_pool_l3 = 10
         self.alt_pool_size = alt_pool_size
 
@@ -195,6 +197,7 @@ class GymAgent:
         data['target_score'] = self.worst_seed_score
         data['best_score'] = self.best_score
         data['seed_pool_l3'] = self.seed_pool_l3
+        data['noise'] = self.noise
 
         if update_local:
             self.__worker_data = data
@@ -247,9 +250,3 @@ class GymAgent:
         init, out = utils.init_graph(graph=graph, out_func=self.__out_func)
         score = utils.test_graph_gym(weight=1.,graph=graph, init=init, out=out, env_id=self.env_id, render=True)
         print(score)
-
-
-if __name__ == "__main__":
-    a = GymAgent("CartPole-v0", num_workers=8)
-
-
